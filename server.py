@@ -10,6 +10,28 @@
 # format. For example, http://127.0.0.1:8080
 # Note:  Chrome seems to work better than MS IE.
 
+# Requires:
+# FTDI D2XX driver for your OS (http://www.ftdichip.com/Drivers/D2XX.htm)
+# PyWin32 on Windows
+#
+# Tested with Python 2.7, 3.4 on Windows (32-bit), Mac OS X (10.10),
+# and Ubuntu Linux 15.04.
+#
+# On Mac OS X, make sure the USB serial driver is unloaded. For
+# example:
+#
+#   sudo kextunload /System/Library/Extensions/IOUSBFamily.kext/Contents/PlugIns/AppleUSBFTDI.kext/
+#
+# On Linux, make sure the ftdi_sio and usbserial modules are unloaded:
+#
+#   sudo rmmod ftdi_sio
+#   sudo rmmod usbserial
+#
+# Also, make sure you have permission to write to the USB device:
+#
+#  lsusb -d 0403:6010 -> get bus and device number
+#  sudo chmod ugo+rw /dev/bus/usb/<bus number>/<device number>
+
 # This web server is single threaded because the Sensor class is not
 # thread-safe. You can serve multiple clients from it, but not at high
 # speeds. If you want to use multiple clients, spawn a worker thread
@@ -23,7 +45,7 @@
 
 from __future__ import print_function
 
-import ftd2xx as ft
+import ftd2xx as FT
 
 import sys
 
@@ -33,115 +55,112 @@ except:
     import http.server as httpServer
 
 crcTable = [
-    0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
-    0x8108, 0x9129, 0xA14A, 0xB16B, 0xC18C, 0xD1AD, 0xE1CE, 0xF1EF,
-    0x1231, 0x0210, 0x3273, 0x2252, 0x52B5, 0x4294, 0x72F7, 0x62D6,
-    0x9339, 0x8318, 0xB37B, 0xA35A, 0xD3BD, 0xC39C, 0xF3FF, 0xE3DE,
-    0x2462, 0x3443, 0x0420, 0x1401, 0x64E6, 0x74C7, 0x44A4, 0x5485,
-    0xA56A, 0xB54B, 0x8528, 0x9509, 0xE5EE, 0xF5CF, 0xC5AC, 0xD58D,
-    0x3653, 0x2672, 0x1611, 0x0630, 0x76D7, 0x66F6, 0x5695, 0x46B4,
-    0xB75B, 0xA77A, 0x9719, 0x8738, 0xF7DF, 0xE7FE, 0xD79D, 0xC7BC,
-    0x48C4, 0x58E5, 0x6886, 0x78A7, 0x0840, 0x1861, 0x2802, 0x3823,
-    0xC9CC, 0xD9ED, 0xE98E, 0xF9AF, 0x8948, 0x9969, 0xA90A, 0xB92B,
-    0x5AF5, 0x4AD4, 0x7AB7, 0x6A96, 0x1A71, 0x0A50, 0x3A33, 0x2A12,
-    0xDBFD, 0xCBDC, 0xFBBF, 0xEB9E, 0x9B79, 0x8B58, 0xBB3B, 0xAB1A,
-    0x6CA6, 0x7C87, 0x4CE4, 0x5CC5, 0x2C22, 0x3C03, 0x0C60, 0x1C41,
-    0xEDAE, 0xFD8F, 0xCDEC, 0xDDCD, 0xAD2A, 0xBD0B, 0x8D68, 0x9D49,
-    0x7E97, 0x6EB6, 0x5ED5, 0x4EF4, 0x3E13, 0x2E32, 0x1E51, 0x0E70,
-    0xFF9F, 0xEFBE, 0xDFDD, 0xCFFC, 0xBF1B, 0xAF3A, 0x9F59, 0x8F78,
-    0x9188, 0x81A9, 0xB1CA, 0xA1EB, 0xD10C, 0xC12D, 0xF14E, 0xE16F,
-    0x1080, 0x00A1, 0x30C2, 0x20E3, 0x5004, 0x4025, 0x7046, 0x6067,
-    0x83B9, 0x9398, 0xA3FB, 0xB3DA, 0xC33D, 0xD31C, 0xE37F, 0xF35E,
-    0x02B1, 0x1290, 0x22F3, 0x32D2, 0x4235, 0x5214, 0x6277, 0x7256,
-    0xB5EA, 0xA5CB, 0x95A8, 0x8589, 0xF56E, 0xE54F, 0xD52C, 0xC50D,
-    0x34E2, 0x24C3, 0x14A0, 0x0481, 0x7466, 0x6447, 0x5424, 0x4405,
-    0xA7DB, 0xB7FA, 0x8799, 0x97B8, 0xE75F, 0xF77E, 0xC71D, 0xD73C,
-    0x26D3, 0x36F2, 0x0691, 0x16B0, 0x6657, 0x7676, 0x4615, 0x5634,
-    0xD94C, 0xC96D, 0xF90E, 0xE92F, 0x99C8, 0x89E9, 0xB98A, 0xA9AB,
-    0x5844, 0x4865, 0x7806, 0x6827, 0x18C0, 0x08E1, 0x3882, 0x28A3,
-    0xCB7D, 0xDB5C, 0xEB3F, 0xFB1E, 0x8BF9, 0x9BD8, 0xABBB, 0xBB9A,
-    0x4A75, 0x5A54, 0x6A37, 0x7A16, 0x0AF1, 0x1AD0, 0x2AB3, 0x3A92,
-    0xFD2E, 0xED0F, 0xDD6C, 0xCD4D, 0xBDAA, 0xAD8B, 0x9DE8, 0x8DC9,
-    0x7C26, 0x6C07, 0x5C64, 0x4C45, 0x3CA2, 0x2C83, 0x1CE0, 0x0CC1,
-    0xEF1F, 0xFF3E, 0xCF5D, 0xDF7C, 0xAF9B, 0xBFBA, 0x8FD9, 0x9FF8,
-    0x6E17, 0x7E36, 0x4E55, 0x5E74, 0x2E93, 0x3EB2, 0x0ED1, 0x1EF0,
+  0x0000,0x1021,0x2042,0x3063,0x4084,0x50A5,0x60C6,0x70E7,
+  0x8108,0x9129,0xA14A,0xB16B,0xC18C,0xD1AD,0xE1CE,0xF1EF,
+  0x1231,0x0210,0x3273,0x2252,0x52B5,0x4294,0x72F7,0x62D6,
+  0x9339,0x8318,0xB37B,0xA35A,0xD3BD,0xC39C,0xF3FF,0xE3DE,
+  0x2462,0x3443,0x0420,0x1401,0x64E6,0x74C7,0x44A4,0x5485,
+  0xA56A,0xB54B,0x8528,0x9509,0xE5EE,0xF5CF,0xC5AC,0xD58D,
+  0x3653,0x2672,0x1611,0x0630,0x76D7,0x66F6,0x5695,0x46B4,
+  0xB75B,0xA77A,0x9719,0x8738,0xF7DF,0xE7FE,0xD79D,0xC7BC,
+  0x48C4,0x58E5,0x6886,0x78A7,0x0840,0x1861,0x2802,0x3823,
+  0xC9CC,0xD9ED,0xE98E,0xF9AF,0x8948,0x9969,0xA90A,0xB92B,
+  0x5AF5,0x4AD4,0x7AB7,0x6A96,0x1A71,0x0A50,0x3A33,0x2A12,
+  0xDBFD,0xCBDC,0xFBBF,0xEB9E,0x9B79,0x8B58,0xBB3B,0xAB1A,
+  0x6CA6,0x7C87,0x4CE4,0x5CC5,0x2C22,0x3C03,0x0C60,0x1C41,
+  0xEDAE,0xFD8F,0xCDEC,0xDDCD,0xAD2A,0xBD0B,0x8D68,0x9D49,
+  0x7E97,0x6EB6,0x5ED5,0x4EF4,0x3E13,0x2E32,0x1E51,0x0E70,
+  0xFF9F,0xEFBE,0xDFDD,0xCFFC,0xBF1B,0xAF3A,0x9F59,0x8F78,
+  0x9188,0x81A9,0xB1CA,0xA1EB,0xD10C,0xC12D,0xF14E,0xE16F,
+  0x1080,0x00A1,0x30C2,0x20E3,0x5004,0x4025,0x7046,0x6067,
+  0x83B9,0x9398,0xA3FB,0xB3DA,0xC33D,0xD31C,0xE37F,0xF35E,
+  0x02B1,0x1290,0x22F3,0x32D2,0x4235,0x5214,0x6277,0x7256,
+  0xB5EA,0xA5CB,0x95A8,0x8589,0xF56E,0xE54F,0xD52C,0xC50D,
+  0x34E2,0x24C3,0x14A0,0x0481,0x7466,0x6447,0x5424,0x4405,
+  0xA7DB,0xB7FA,0x8799,0x97B8,0xE75F,0xF77E,0xC71D,0xD73C,
+  0x26D3,0x36F2,0x0691,0x16B0,0x6657,0x7676,0x4615,0x5634,
+  0xD94C,0xC96D,0xF90E,0xE92F,0x99C8,0x89E9,0xB98A,0xA9AB,
+  0x5844,0x4865,0x7806,0x6827,0x18C0,0x08E1,0x3882,0x28A3,
+  0xCB7D,0xDB5C,0xEB3F,0xFB1E,0x8BF9,0x9BD8,0xABBB,0xBB9A,
+  0x4A75,0x5A54,0x6A37,0x7A16,0x0AF1,0x1AD0,0x2AB3,0x3A92,
+  0xFD2E,0xED0F,0xDD6C,0xCD4D,0xBDAA,0xAD8B,0x9DE8,0x8DC9,
+  0x7C26,0x6C07,0x5C64,0x4C45,0x3CA2,0x2C83,0x1CE0,0x0CC1,
+  0xEF1F,0xFF3E,0xCF5D,0xDF7C,0xAF9B,0xBFBA,0x8FD9,0x9FF8,
+  0x6E17,0x7E36,0x4E55,0x5E74,0x2E93,0x3EB2,0x0ED1,0x1EF0,
 ]
-
 
 def crc16(packet):
     rem = 0
     for p in packet:
-        rem = (rem << 8) ^ crcTable[(rem >> 8) ^ p]
-        rem &= 0xFFFF
+        #print("%04X %02X %04X" % (rem,p,crcTable[(rem>>8) ^ p]))
+        rem = (rem << 8) ^ crcTable[(rem>>8) ^ p]
+        rem = rem & 0xFFFF
     return rem
-
 
 class SensorInterface(object):
     def __init__(self):
         self.sensor = None
         self.buffer = []
-        self.default = []
 
     def connect(self, id=None):
         """Connects to a sensor
 
         Use the optional id argument to specify a non-default sensor"""
-        if id is None:
-            id = 0
+        if id == None:
+            id = 0;
         try:
-            self.sensor = ft.open(id)
-        except ft.DeviceError:
+            self.sensor = FT.open(id)
+        except FT.DeviceError:
             print("Error: Device not found")
             raise
 
         self.sensor.setUSBParameters(8192)
         self.sensor.setLatencyTimer(2)
-
     def close(self):
-        """Closes the connection to the sensor"""
+        "Closes the connection to the sensor"
         if self.sensor:
             self.sensor.close()
         self.sensor = None
 
-    def get_all_images(self):
-        """Returns a list of all images found in the FTDI buffer"""
-        self.read_buffer()
-        images = []
+    def getImage(self):
+        "Returns a list of all images found in the FTDI buffer"
+        self.readBuffer()
         while True:
-            p = self.get_packet()
+            p = self.getPacket()
             if not p:
-                return images
-            if p[0] == 2:  # image packet
+                return image
+            if p[0] == 2: # image packet
                 rows = p[14]
                 cols = p[15]
-                img_buf = p[16:]
+                imgBuf = p[16:]
                 pixels = []
                 for i in range(rows):
-                    pixels.append(img_buf[(i * cols):((i + 1) * cols)])
-                img = {'timeStamp': p[5] + (p[6] << 16),
-                       'sequence': p[10],
-                       'rows': rows,
-                       'cols': cols,
-                       'image': pixels}
-                images.append(img)
+                    pixels.append(imgBuf[(i*cols):((i+1)*cols)])
+                img = { 'timeStamp' : p[5] + (p[6] << 16),
+                        'sequence' : p[10],
+                        'rows' : rows,
+                        'cols' : cols,
+                        'image' : pixels }
 
-    def get_packet(self):
+
+
+    def getPacket(self):
         while True:
             if len(self.buffer) == 0:
                 return None
 
             # find BOM: 7 FFs followed by A5
-            ff_count = 0
+            ffCount = 0
             while len(self.buffer) > 0:
                 b = self.buffer.pop(0)
                 if b == 0xFF:
-                    ff_count += 1
-                    if ff_count == 15:
+                    ffCount += 1
+                    if ffCount == 15:
                         print("Warning: Sensor buffer overflow")
-                elif ff_count >= 7 and b == 0xA5:
+                elif ffCount >= 7 and b == 0xA5:
                     break
                 else:
-                    ff_count == 0
+                    ffCount == 0
 
             # Read length word
             if len(self.buffer) < 2:
@@ -157,17 +176,17 @@ class SensorInterface(object):
                 return None
 
             if length < 32:
-                print("Discarded packet shorter than minimum (%d bytes vs 32 bytes)" % length)
-                continue  # packet is shorter than minimum size
+                print("Discarded packet shorter than minimum (%d bytes vs 32 bytes)" % (length))
+                continue # packet is shorter than minimum size
 
             packet = self.buffer[0:length]
 
-            calc_crc = crc16(packet[4:])
-            tx_crc = packet[3] + (packet[2] << 8)
-            if calc_crc != tx_crc:
-                print("Warning: Transmitted CRC %04X != %04X Calculated" % (tx_crc, calc_crc))
+            calcCrc = crc16(packet[4:])
+            txCrc = packet[3] + (packet[2] << 8)
+            if calcCrc != txCrc:
+                print("Warning: Transmitted CRC %04X != %04X Calculated" % (txCrc, calcCrc))
                 continue
-            packet = self.remove_escaped_ffs(packet)
+            packet = self.removeEscapedFFs(packet)
 
             # convert packet to words from bytes
             lo = packet[5::2]
@@ -179,22 +198,22 @@ class SensorInterface(object):
             # print("Accepting packet, %d bytes long" % length)
             return packet
 
-    def remove_escaped_ffs(self, packet):
+    def removeEscapedFFs(self, packet):
         # packets have 00 bytes inserted after each 4 FFs because
         # strings of FFs are used by hardware for signaling purposes
         i = 4
-        while i < len(packet) - 4:
-            if packet[i] != 0xFF or packet[i + 1] != 0xFF or packet[i + 2] != 0xFF or packet[i + 3] != 0xFF:
+        while i < len(packet)-4:
+            if packet[i] != 0xFF or packet[i+1] != 0xFF or packet[i+2] != 0xFF or packet[i+3] != 0xFF:
                 i += 1
                 continue
-            print(packet[i + 4])
-            if packet[i + 4] != 0:
-                print("Warning, saw incorrect escape in FF sequence: %d" % packet[i + 4])
-            del packet[i + 4]
+            print(packet[i+4])
+            if packet[i+4] != 0:
+                print("Warning, saw incorrect escape in FF sequence: %d" % packet[i+4])
+            del packet[i+4]
             i += 1
         return packet
 
-    def read_buffer(self):
+    def readBuffer(self):
         if not self.sensor:
             return
         # flush out buffer so we don't get old images
@@ -210,35 +229,34 @@ class SensorInterface(object):
             buf = [ord(x) for x in buf]
         self.buffer.extend(buf)
 
-
 class MyHttpHandler(httpServer.BaseHTTPRequestHandler):
-    def image_to_json(self, image):
+    def imageToJSON(self, image):
         # JSON requires double-quotes around dict keys, Python's standard
         # __str__ gives single-quotes. Also it annotates long integers. So
         # here's a method to create actual JSON.
-        self.write_str("{")
+        self.writeStr("{")
         keys = list(image.keys())
         for j in range(len(keys)):
             k = keys[j]
-            self.write_str('"%s":%s' % (k, image[k]))
-            if j != len(keys) - 1:
-                self.write_str(",")
-        self.write_str("}")
+            self.writeStr('"%s":%s' % (k, image[k]))
+            if j != len(keys)-1:
+                self.writeStr(",")
+        self.writeStr("}")
 
-    def write_str(self, s):
+    def writeStr(self, s):
         self.wfile.write(s.encode("utf-8"))
 
-    def send_sensor_data(self):
+    def send_sensorData(self):
         global sensor
         self.send_response(200)
         self.send_header("Content-type", "application/json")
         self.end_headers()
-        images = sensor.get_all_images()
-        if len(images) > 0:
-            self.image_to_json(images[-1])
+        images = sensor.getAllImages()
+        if images:
+            self.imageToJSON(images)
         else:
             print("Warning: no image available")
-            self.write_str("{}")
+            self.writeStr("{}")
 
     def send_file(self, file):
         f = open(file)
@@ -246,25 +264,24 @@ class MyHttpHandler(httpServer.BaseHTTPRequestHandler):
         self.send_header("Content-type", "text/html")
         self.end_headers()
         for line in f:
-            self.write_str(line)
+            self.writeStr(line)
         f.close()
 
-    def do_get(self):
+    def do_GET(self):
         files = ['index.html', 'jquery-1.11.3.js']
         if self.path == '/':
             self.path = '/index.html'
 
         if self.path == '/sensorData':
-            self.send_sensor_data()
+            self.send_sensorData()
         elif self.path[1:] in files:
             self.send_file(self.path[1:])
         else:
             self.send_response(404)
             self.send_header("Content-type", "text/html")
             self.end_headers()
-            self.write_str("<html><head><title>Not Found</title></head>")
-            self.write_str("<body><h1>Not Found</h1></body></html>")
-
+            self.writeStr("<html><head><title>Not Found</title></head>")
+            self.writeStr("<body><h1>Not Found</h1></body></html>")
 
 def Main(port):
     global sensor
@@ -274,6 +291,7 @@ def Main(port):
     except:
         print("Error connecting to sensor")
         raise
+        return
 
     server = httpServer.HTTPServer(('', port), MyHttpHandler)
 
@@ -283,7 +301,6 @@ def Main(port):
         pass
 
     sensor.close()
-
 
 if __name__ == '__main__':
     port = 8080
