@@ -145,6 +145,22 @@ class SensorInterface(object):
                 temp[j].append(self.default[j][k] - self.current['image'][j][k] >= 50)
         print(temp)
 
+    def get_points(self, pressure) -> []:
+        points = []
+        temp = [[0]*len(pressure[0])]
+        x_p = [-1, 1, 0, 0]
+        y_p = [0, 0, -1, 1]
+        for i in pressure:
+            for j in pressure[0]:
+                if pressure[i][j] == True:
+                    for i in range(len(4)):
+                        if(pressure[i + x_p][j + y_p]):
+
+
+
+    def output(self, point):
+
+
     def get_packet(self):
         while True:
             if len(self.buffer) == 0:
