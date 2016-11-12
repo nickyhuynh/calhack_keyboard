@@ -81,6 +81,8 @@ class SensorInterface(object):
         self.sensor = None
         self.buffer = []
         self.default = []
+        self.current = None
+        self.count = 0
 
     def connect(self, id=None):
         """Connects to a sensor
@@ -103,27 +105,45 @@ class SensorInterface(object):
             self.sensor.close()
         self.sensor = None
 
-    def get_all_images(self):
-        """Returns a list of all images found in the FTDI buffer"""
+    def get_image(self):
+        """Get the image found in the FTDI buffer"""
         self.read_buffer()
-        images = []
         while True:
             p = self.get_packet()
             if not p:
-                return images
-            if p[0] == 2:  # image packet
+                return
+            if p[0] == 2: # image packet
                 rows = p[14]
                 cols = p[15]
                 img_buf = p[16:]
                 pixels = []
                 for i in range(rows):
                     pixels.append(img_buf[(i * cols):((i + 1) * cols)])
-                img = {'timeStamp': p[5] + (p[6] << 16),
-                       'sequence': p[10],
-                       'rows': rows,
-                       'cols': cols,
-                       'image': pixels}
-                images.append(img)
+                self.current = {'timeStamp': p[5] + (p[6] << 16),
+                                'sequence': p[10],
+                                'rows': rows,
+                                'cols': cols,
+                                'image': pixels}
+                if self.count > 10:
+                    self.diff()
+                elif self.count <= 9:
+                    self.default.append(self.current['image'])
+                if self.count == 9:
+                    temp = []
+                    for j in range(len(self.default[0])):
+                        temp.append([])
+                        for k in range(len(self.default[0][j])):
+                            temp[j].append(sum(self.default[i][j][k] for i in range(len(self.default))) / 10)
+                    self.default = temp
+                self.count += 1
+
+    def diff(self):
+        temp = []
+        for j in range(len(self.default)):
+            temp.append([])
+            for k in range(len(self.default[j])):
+                temp[j].append(self.default[j][k] - self.current['image'][j][k] >= 50)
+        print(temp)
 
     def get_packet(self):
         while True:
@@ -211,82 +231,8 @@ class SensorInterface(object):
         self.buffer.extend(buf)
 
 
-class MyHttpHandler(httpServer.BaseHTTPRequestHandler):
-    def image_to_json(self, image):
-        # JSON requires double-quotes around dict keys, Python's standard
-        # __str__ gives single-quotes. Also it annotates long integers. So
-        # here's a method to create actual JSON.
-        self.write_str("{")
-        keys = list(image.keys())
-        for j in range(len(keys)):
-            k = keys[j]
-            self.write_str('"%s":%s' % (k, image[k]))
-            if j != len(keys) - 1:
-                self.write_str(",")
-        self.write_str("}")
-
-    def write_str(self, s):
-        self.wfile.write(s.encode("utf-8"))
-
-    def send_sensor_data(self):
-        global sensor
-        self.send_response(200)
-        self.send_header("Content-type", "application/json")
-        self.end_headers()
-        images = sensor.get_all_images()
-        if len(images) > 0:
-            self.image_to_json(images[-1])
-        else:
-            print("Warning: no image available")
-            self.write_str("{}")
-
-    def send_file(self, file):
-        f = open(file)
-        self.send_response(200)
-        self.send_header("Content-type", "text/html")
-        self.end_headers()
-        for line in f:
-            self.write_str(line)
-        f.close()
-
-    def do_get(self):
-        files = ['index.html', 'jquery-1.11.3.js']
-        if self.path == '/':
-            self.path = '/index.html'
-
-        if self.path == '/sensorData':
-            self.send_sensor_data()
-        elif self.path[1:] in files:
-            self.send_file(self.path[1:])
-        else:
-            self.send_response(404)
-            self.send_header("Content-type", "text/html")
-            self.end_headers()
-            self.write_str("<html><head><title>Not Found</title></head>")
-            self.write_str("<body><h1>Not Found</h1></body></html>")
-
-
-def Main(port):
-    global sensor
-    sensor = SensorInterface()
-    try:
-        sensor.connect()
-    except:
-        print("Error connecting to sensor")
-        raise
-
-    server = httpServer.HTTPServer(('', port), MyHttpHandler)
-
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-
-    sensor.close()
-
-
 if __name__ == '__main__':
-    port = 8080
-    if len(sys.argv) > 1:
-        port = int(sys.argv[1])
-    Main(port)
+    sensor = SensorInterface()
+    sensor.connect()
+    while True:
+        sensor.get_image()
