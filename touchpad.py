@@ -26,17 +26,14 @@ class Hand:
     def formulate(self):
         # separates thumb from fingers and decides self.left
         self.fingers = sorted(self.fingers, key=lambda x: x[1], reverse=True)
-        self.thumb = self.fingers.pop([0])
+        self.thumb = self.fingers.pop(0)
         self.fingers = sorted(self.fingers, key=lambda x: distance2(x, self.thumb))
         f_1 = self.fingers[0]
-        f_34 = merge(self.fingers[3], self.fingers[4])
+        f_34 = merge(self.fingers[2], self.fingers[3])
         self.dir = float(f_34[0][1] - f_1[0][1]), float(f_34[0][0] - f_1[0][0])
-        dir_length = math.sqrt(self.dir[0] * self.dir[0] + self.dir[1] * self.dir[1])
         thumb_dir = float(self.thumb[0][1] - f_1[0][1]), float(self.thumb[0][0] - f_1[0][0])
-        thumb_dir_length = math.sqrt(thumb_dir[0] * thumb_dir[0] + thumb_dir[1] * thumb_dir[1])
-        dot_product = (self.dir[0] * thumb_dir[0] + self.dir[1] * thumb_dir[1])
-        angle = math.acos(float(dot_product) / float(dir_length * thumb_dir_length))
-        self.left = angle < 0
+        angle = math.atan2(thumb_dir[1], thumb_dir[0]) - math.atan2(self.dir[1], self.dir[0])
+        self.left = -math.pi < angle < 0 or angle > math.pi
 
 
 class Touchpad:
@@ -76,7 +73,6 @@ class Touchpad:
             hands_on.append([])
             for k in range(len(self.empty_image[j])):
                 hands_on[j].append(self.empty_image[j][k] - self.current_image[j][k] >= 40)
-        print(hands_on)
 
         # gets an list of fingers of the structure ((center_x, center_y), size)
         segments = []
@@ -176,6 +172,8 @@ class Touchpad:
                 hand1.add_finger(i)
             else:
                 hand2.add_finger(i)
+        if len(hand1.fingers) < 5 or len(hand2.fingers) < 5:
+            return
         hand1.formulate()
         hand2.formulate()
         if hand1.left:
