@@ -1,36 +1,10 @@
 #!/usr/bin/python
 
-# Python-based HTTP server for requesting sensor data
-#
-# To run:
-#   python server.py [port]
-# where port defaults to 8080.
-#
-# Connect to the server via HTTP to receive latest images in JSON
-# format. For example, http://127.0.0.1:8080
-# Note:  Chrome seems to work better than MS IE.
-
-# This web server is single threaded because the Sensor class is not
-# thread-safe. You can serve multiple clients from it, but not at high
-# speeds. If you want to use multiple clients, spawn a worker thread
-# that polls the Sensor for more images, then share those images with
-# the other threads.
-#
-# Also, the server only returns the *last* image. This is because the
-# web browser demo code can't handle more than 10-20 frames per
-# second. However, the sensor class itself can deliver data at 80 Hz
-# or more if the downstream code is consuming it fast enough.
-
 from __future__ import print_function
-
 import ftd2xx as ft
-
 import sys
+import touchpad
 
-try:
-    import BaseHTTPServer as httpServer
-except:
-    import http.server as httpServer
 
 crcTable = [
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
@@ -76,22 +50,18 @@ def crc16(packet):
     return rem
 
 
-class SensorInterface(object):
+class Sensor:
     def __init__(self):
         self.sensor = None
         self.buffer = []
-        self.default = []
-        self.current = None
-        self.count = 0
+        self.touchpad = touchpad.Touchpad()
 
-    def connect(self, id=None):
-        """Connects to a sensor
-
-        Use the optional id argument to specify a non-default sensor"""
-        if id is None:
-            id = 0
+    def connect(self, sensor_id=None):
+        """Connects to a sensor, use the optional id argument to specify a non-default sensor"""
+        if sensor_id is None:
+            sensor_id = 0
         try:
-            self.sensor = ft.open(id)
+            self.sensor = ft.open(sensor_id)
         except ft.DeviceError:
             print("Error: Device not found")
             raise
@@ -112,96 +82,14 @@ class SensorInterface(object):
             p = self.get_packet()
             if not p:
                 return
-            if p[0] == 2: # image packet
+            if p[0] == 2:  # image packet
                 rows = p[14]
                 cols = p[15]
                 img_buf = p[16:]
                 pixels = []
                 for i in range(rows):
                     pixels.append(img_buf[(i * cols):((i + 1) * cols)])
-                pixels = pixels[:-4] + pixels[-3:]
-                self.current = {'timeStamp': p[5] + (p[6] << 16),
-                                'sequence': p[10],
-                                'rows': rows,
-                                'cols': cols,
-                                'image': pixels}
-                if self.count > 10:
-                    self.get_positions()
-                elif self.count <= 9:
-                    self.default.append(self.current['image'])
-                if self.count == 9:
-                    temp = []
-                    for j in range(len(self.default[0])):
-                        temp.append([])
-                        for k in range(len(self.default[0][j])):
-                            temp[j].append(sum(self.default[i][j][k] for i in range(len(self.default))) / 10)
-                    self.default = temp
-                self.count += 1
-
-    def get_positions(self):
-        temp = []
-        for j in range(len(self.default)):
-            temp.append([])
-            for k in range(len(self.default[j])):
-                diff = self.default[j][k] - self.current['image'][j][k]
-                temp[j].append(diff >= 60)
-        temp2 = []
-        for i in range(len(temp)):
-            temp2.append([])
-            for j in range(len(temp[i])):
-                if temp[i][j] == True:
-                    temp2[i].append(8)
-                else:
-                    temp2[i].append(1)
-        print(temp2)
-        segments = []
-        mapping = {}
-        for i in range(len(temp)):
-            for j in range(len(temp[i])):
-                if temp[i][j]:
-                    mapped = False
-                    directions = []
-                    if i > 0:
-                        if j > 0:
-                            directions.append((-1, -1))
-                        elif j < len(temp[i]) - 1:
-                            directions.append((-1, 1))
-                        directions.append((-1, 0))
-                    if j > 0:
-                        directions.append((0, -1))
-                    for k in directions:
-                        if not mapped and mapping.get((i + k[0], j + k[1])):
-                            mapping[(i, j)] = mapping[(i + k[0], j + k[1])]
-                            segments[mapping[(i + k[0], j + k[1])]].append((i, j))
-                            mapped = True
-                    if not mapped:
-                        segments.append([(i, j)])
-                        mapping[(i, j)] = len(segments) - 1
-        for s in range(len(segments)):
-            for (i, j) in segments[s]:
-                unique = True
-                directions = []
-                if i < len(temp) - 1:
-                    if j > 0:
-                        directions.append((1, -1))
-                    elif j < len(temp[i]) - 1:
-                        directions.append((1, 1))
-                    directions.append((1, 0))
-                if j < len(temp[i]) - 1:
-                    directions.append((0, 1))
-                for t in range(len(segments)):
-                    for k in directions:
-                        if unique and t != s and (i + k[0], j + k[1]) in segments[t]:
-                            segments[t] += segments[s]
-                            unique = False
-                if not unique:
-                    segments[s] = []
-        centers = []
-        for segment in segments:
-            if segment:
-                centers.append((sorted(segment, key=lambda x: x[1])[int(len(segment) / 2)], len(segment)))
-        print(centers)
-        return centers
+                self.touchpad.process_image(pixels)
 
     def get_packet(self):
         while True:
@@ -290,7 +178,7 @@ class SensorInterface(object):
 
 
 if __name__ == '__main__':
-    sensor = SensorInterface()
+    sensor = Sensor()
     sensor.connect()
     while True:
         sensor.get_image()
