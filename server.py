@@ -63,7 +63,7 @@ class Sensor:
         try:
             self.sensor = ft.open(sensor_id)
         except ft.DeviceError:
-            print("Error: Device not found")
+            # print("Error: Device not found")
             raise
 
         self.sensor.setUSBParameters(8192)
@@ -103,7 +103,8 @@ class Sensor:
                 if b == 0xFF:
                     ff_count += 1
                     if ff_count == 15:
-                        print("Warning: Sensor buffer overflow")
+                        # print("Warning: Sensor buffer overflow")
+                        pass
                 elif ff_count >= 7 and b == 0xA5:
                     break
                 else:
@@ -111,7 +112,7 @@ class Sensor:
 
             # Read length word
             if len(self.buffer) < 2:
-                print("Discarded packet because buffer is empty")
+                # print("Discarded packet because buffer is empty")
                 continue
 
             length = self.buffer[1] + (self.buffer[0] << 8)
@@ -123,7 +124,7 @@ class Sensor:
                 return None
 
             if length < 32:
-                print("Discarded packet shorter than minimum (%d bytes vs 32 bytes)" % length)
+                # print("Discarded packet shorter than minimum (%d bytes vs 32 bytes)" % length)
                 continue  # packet is shorter than minimum size
 
             packet = self.buffer[0:length]
@@ -131,7 +132,7 @@ class Sensor:
             calc_crc = crc16(packet[4:])
             tx_crc = packet[3] + (packet[2] << 8)
             if calc_crc != tx_crc:
-                print("Warning: Transmitted CRC %04X != %04X Calculated" % (tx_crc, calc_crc))
+                # print("Warning: Transmitted CRC %04X != %04X Calculated" % (tx_crc, calc_crc))
                 continue
             packet = self.remove_escaped_ffs(packet)
 
@@ -155,7 +156,8 @@ class Sensor:
                 continue
             print(packet[i + 4])
             if packet[i + 4] != 0:
-                print("Warning, saw incorrect escape in FF sequence: %d" % packet[i + 4])
+                # print("Warning, saw incorrect escape in FF sequence: %d" % packet[i + 4])
+                pass
             del packet[i + 4]
             i += 1
         return packet
@@ -170,7 +172,8 @@ class Sensor:
             buf = self.sensor.read(rx)
             # print("Read %d bytes" % len(buf))
             if rx == 65536:
-                print("Discarding buffer...")
+                # print("Discarding buffer...")
+                pass
 
         if sys.version_info[0] < 3:
             buf = [ord(x) for x in buf]

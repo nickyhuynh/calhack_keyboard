@@ -15,7 +15,6 @@ def absolute_to_relative(val_x, val_y, x_axis, y_axis, angle):
     """ shift and rotate position to fit the relative coordinate """
     x = val_x - x_axis
     y = val_y - y_axis
-    print(x, y)
     return x * math.cos(angle) - y * math.sin(angle), x * math.sin(angle) + y * math.cos(angle)
 
 
@@ -47,18 +46,45 @@ class Hand:
 
         for i in range(len(self.fingers) - 1):
             self.sep += math.sqrt(float(distance2(self.fingers[i], self.fingers[1 + i])))
-        self.sep = self.sep / 4.0 * 0.8
+        self.sep = self.sep / 4.0 * 0.5
 
     def get_key(self, pos):
         angle = -math.atan2(self.dir[1], self.dir[0]) + (math.pi if self.is_left else 0)
         x, y = absolute_to_relative(pos[0][0], -pos[0][1], self.fingers[0][0][0], -self.fingers[0][0][1], angle)
-        print(x, y)
-        if x >= self.sep * 1.5:
-            return 'Q'
-        elif x <= -self.sep * 1.5:
-            return 'Z'
+        if x <= -self.sep:
+            if y <= -self.sep * 2.5:
+                return 'Q'
+            if y <= -self.sep * 1.5:
+                return 'W'
+            if y <= -self.sep * 0.5:
+                return 'E'
+            if y <= self.sep * 0.5:
+                return 'R'
+            if y <= self.sep * 1.5:
+                return 'T'
+        elif x >= self.sep:
+            if y <= -self.sep * 2.5:
+                return 'Z'
+            if y <= -self.sep * 1.5:
+                return 'X'
+            if y <= -self.sep * 0.5:
+                return 'C'
+            if y <= self.sep * 0.5:
+                return 'V'
+            if y <= self.sep * 1.5:
+                return 'B'
         else:
-            return 'A'
+            if y <= -self.sep * 2.5:
+                return 'A'
+            if y <= -self.sep * 1.5:
+                return 'S'
+            if y <= -self.sep * 0.5:
+                return 'D'
+            if y <= self.sep * 0.5:
+                return 'F'
+            if y <= self.sep * 1.5:
+                return 'G'
+        return ''
 
 
 class Touchpad:
@@ -79,7 +105,7 @@ class Touchpad:
                 for i in fingers:
                     key1 = self.left.get_key(i)
                     key2 = self.right.get_key(i)
-                    # print key1 if key1 else key2,
+                    print key1 if key1 else key2,
 
         else:
             self.empty_image.append(self.current_image)
@@ -152,7 +178,9 @@ class Touchpad:
     def separate_hands(self, fingers):
         # separate all fingers into two hands, different cases for 12 / 13 / 14 detected positions
         palm1, palm2 = None, None
-        if len(fingers) == 12:
+        if len(fingers) >= 15:
+            return
+        elif len(fingers) == 12:
             palm1 = fingers[0]
             palm2 = fingers[1]
         elif len(fingers) == 13:
