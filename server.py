@@ -119,13 +119,14 @@ class SensorInterface(object):
                 pixels = []
                 for i in range(rows):
                     pixels.append(img_buf[(i * cols):((i + 1) * cols)])
+                pixels = pixels[:-4] + pixels[-3:]
                 self.current = {'timeStamp': p[5] + (p[6] << 16),
                                 'sequence': p[10],
                                 'rows': rows,
                                 'cols': cols,
                                 'image': pixels}
                 if self.count > 10:
-                    self.diff()
+                    self.get_positions()
                 elif self.count <= 9:
                     self.default.append(self.current['image'])
                 if self.count == 9:
@@ -137,13 +138,70 @@ class SensorInterface(object):
                     self.default = temp
                 self.count += 1
 
-    def diff(self):
+    def get_positions(self):
         temp = []
         for j in range(len(self.default)):
             temp.append([])
             for k in range(len(self.default[j])):
-                temp[j].append(self.default[j][k] - self.current['image'][j][k] >= 50)
-        print(temp)
+                diff = self.default[j][k] - self.current['image'][j][k]
+                temp[j].append(diff >= 60)
+        temp2 = []
+        for i in range(len(temp)):
+            temp2.append([])
+            for j in range(len(temp[i])):
+                if temp[i][j] == True:
+                    temp2[i].append(8)
+                else:
+                    temp2[i].append(1)
+        print(temp2)
+        segments = []
+        mapping = {}
+        for i in range(len(temp)):
+            for j in range(len(temp[i])):
+                if temp[i][j]:
+                    mapped = False
+                    directions = []
+                    if i > 0:
+                        if j > 0:
+                            directions.append((-1, -1))
+                        elif j < len(temp[i]) - 1:
+                            directions.append((-1, 1))
+                        directions.append((-1, 0))
+                    if j > 0:
+                        directions.append((0, -1))
+                    for k in directions:
+                        if not mapped and mapping.get((i + k[0], j + k[1])):
+                            mapping[(i, j)] = mapping[(i + k[0], j + k[1])]
+                            segments[mapping[(i + k[0], j + k[1])]].append((i, j))
+                            mapped = True
+                    if not mapped:
+                        segments.append([(i, j)])
+                        mapping[(i, j)] = len(segments) - 1
+        for s in range(len(segments)):
+            for (i, j) in segments[s]:
+                unique = True
+                directions = []
+                if i < len(temp) - 1:
+                    if j > 0:
+                        directions.append((1, -1))
+                    elif j < len(temp[i]) - 1:
+                        directions.append((1, 1))
+                    directions.append((1, 0))
+                if j < len(temp[i]) - 1:
+                    directions.append((0, 1))
+                for t in range(len(segments)):
+                    for k in directions:
+                        if unique and t != s and (i + k[0], j + k[1]) in segments[t]:
+                            segments[t] += segments[s]
+                            unique = False
+                if not unique:
+                    segments[s] = []
+        centers = []
+        for segment in segments:
+            if segment:
+                centers.append((sorted(segment, key=lambda x: x[1])[int(len(segment) / 2)], len(segment)))
+        print(centers)
+        return centers
 
     def get_packet(self):
         while True:
